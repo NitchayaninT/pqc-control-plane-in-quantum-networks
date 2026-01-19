@@ -6,7 +6,6 @@ Logger.DISABLED = True
 # create the EQSN backend object
 backend = EQSNBackend()
 
-
 def protocol_1(host, receiver):
     # Here we write the protocol code for a host.
     for i in range(5):
