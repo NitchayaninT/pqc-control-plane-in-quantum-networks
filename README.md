@@ -1,21 +1,38 @@
-# Design and Evaluation of a PQC-Secured Quantum Repeater Control Plane with Centralized Security Logging
-This project focuses on the design and evaluation of a post-quantum secure classical control plane for quantum repeater networks. The project investigates how Post-Quantum Cryptography (PQC) can be applied to protect classical control-plane communication used to coordinate quantum network operations such as entanglement generation and entanglement swapping.
+# Message-Class-Aware Security for Multi-Hop Quantum Repeater Control Planes
+Quantum repeater networks distribute entanglement across multiple hops, which enables applications such as long-distance quantum key distribution (QKD), distributed quantum computing, global quantum internet and networked sensing. 
 
-The system also introduces a centralized security logging component to collect structured events from simulated end nodes, repeater nodes, local control-plane agents, PQC security modules, and quantum operation controllers. These logs are used to analyze abnormal behavior under normal and attack scenarios, including replay attempts, MAC/signature verification failures, delayed control messages, suspected packet drops, memory timeout, and entanglement operation failures.
+They cannot function on quantum channels alone, each service depends on a classical control plane
 
-## Problem
-Quantum repeater networks rely on classical control messages to coordinate quantum operations across multiple nodes. These messages may include entanglement generation requests, entanglement swapping requests, measurement results, status reports, and resource availability updates. If the classical control channel is not protected against future quantum-capable adversaries, sensitive control-plane information may be exposed or manipulated.
-
-This project explores a PQC-secured control-plane workflow where nodes establish post-quantum secure classical sessions before executing quantum network operations. A centralized logging system is added to provide security visibility and support analysis of how classical control-plane events affect quantum operation outcomes.
-
+## What does a control plane do?
+- **Schedule entanglement attempts**
+- **Report heralding outcomes** (after entanglement generation request attempts)
+- **Sends Pauli correction** messages to rotate qubit
+- **Carry bell-state measurement results** (measure local qubits in intermediate node and sends result to either if the repeater that its entangled with)
+- **Coordinate entanglement swapping** at intermediate nodes 
+- **Communicate node availability** and timeouts
+## What do control plane messages contain?
+- **Heralds** : Did this attempt succeed, on which link, in which time slot, which Bell state.
+- **BSM outcomes** :  Which correction to apply (2 bits)
+- **Scheduling and requests** : Who wants entanglement with whom, at what rate, at what fidelity
+- **Session keys and handshake material** 
+## Security Problems
+1. Forge/Replay/==Delay control messages== can cause incorrect pauli corrections at the endpoints, trigger wasted entanglement attempts and desynchronize node schedules
+	- **How can it happen?** : The packets got captured on a compromised machine or router
+	- **What will happen after that?** : ==Wasted entanglement attempts,== desynchronized schedules
+2. Adversary who records classical traffic today can attempt decryption later
+	- **How can it happen?** : Compromised network device on the path, intercept traffic, the attacker records the key exchange over the network to agree on **symmetric key** so later, they can recover the session key and decrypt everything that key protected. They can also ==recover the private value from the public one to derive the shared secret and decrypt the session.==
+    - **What will happen if they decrypt these messages? What can they learn from control  messages?** : **Traffic analysis,** if the application is QKD, ==the pattern of key requests reveals which organizations are exchanging keys and when== (that reveals the pattern of key establishment between them but not the keys ==themselves==). **Impersonation**, recovered long-term keys (signing key from the node's public key, which is in its certificate and freely available) let an attacker forge future messages or impersonate a node. Session key compromise is bounded to one session, ==signing key (CertificateVerify) compromise is ongoing and network-wide==, **Topology**, routing and calibration messages reveal the network graph
+## Latency Problems
+1. Some messages are **latency-critical and carry no secret**, others are **latency-tolerant and carry session state**
+2. Security mechanism applied should follow from the **class of message** being protected
+## Problem statements
+- The control plane is unspecified from a security standpoint
+	- There is ==no published classification of repeater control messages by the security guarantees they require==, and therefore no principled basis for choosing mechanisms
+- Uniform security treatment is both wasteful and insufficient
+	- Applying ==full confidentiality to every message imposes cost on latency-bound== that need only authenticity and freshness. 
+- End-to-end-only protection is insufficient where intermediate repeaters must act on message contents
 ## Goal
-Design a secure classical control plane that 
-- Uses PQC (KyberKEM) for handshake establishment process in classical channel
-- Coordinates entanglement generation & swapping
-- Preserves coherence of NV nuclear memories
-- Resists Store now, decrypt later and MITM attacks
-- Evaluate trade off between security overhead & quantum performance
-
+To design and evaluate a security architecture for multi-hop quantum repeater control planes in which cryptographic mechanisms are assigned according to the security requirements and timing constraints of each class of control message
 ## System Architecture
 - End Nodes: Request and receive end-to-end entanglement services.
 - Repeater Nodes: Generate link-level entanglement, store quantum states, and perform entanglement swapping.
@@ -26,44 +43,33 @@ Design a secure classical control plane that
 - Centralized Security Logging Server: Receives, stores, and analyzes logs from all nodes for security and performance evaluation.
 
 ## Research Focus
-This project focuses on the relationship between classical control-plane security and quantum-network operation outcomes. The logging system is designed to help answer questions such as:
-
+This project focuses on the relationship between classical control-plane security and quantum-network operation outcomes. 
 - Does PQC handshake overhead affect quantum operation timing?
 - Can replay, delay, or packet drop behavior be detected from structured logs?
 - Can authentication failures be linked to rejected control-plane messages?
 - Can delayed classical control messages cause quantum memory timeout?
-- Can centralized logs explain why entanglement generation or swapping failed?
 
 ## Methodology
-- [PQC Control plane architecture design](./Control%20Plane%20Design/README.md)
-	- Layered control-plane stack
-	- Deterministic scheduling policies
-	- Local Control plane Agent design for each node
-- Quantum Repeater Network Model 
-	- Network Topology
-- Threat Model
-- Quantum Operation Simulation
-- Security Log Design
-- Log Agent Implementation
-- Centralized Security Logging Server
-- Attack and Abnormal Scenario Simulation
-- Rule-based security Analysis
-- Evaluation (Is using PQC to secure classical information worth it?)
-	- PQC computational latency compared with non-PQC latency
-	- Network transmission overhead using huge PQC elements and not using it
-	- Impact of security overhead in entanglement generation and entanglement swapping
-	- Eavesdropping test between using PQC and non-PQC
-
-## Tools and Technologies (PLANNING)
-- Python
-- QuNetSim or Sequence
-- liboqs / Open Quantum Safe for PQC algorithms
-- ML-KEM for post-quantum key establishment
-- ML-DSA for post-quantum signatures
-- HMAC for message authentication verification
-- FastAPI for centralized logging server
-- JSON / JSONL structured logs
-- SQLite or file-based storage for log analysis
+1. Threat Model
+	- Output. Adversary capability table; per-message-type consequence-of-compromise analysis.
+2. Message Taxonomy (Message types are extracted from published specifications)
+3. Association topology analysis
+	- End to end (source ↔ destination; repeaters forward opaque bytes)
+	- Per hop (each adjacent pair)
+	- Multi-unicast
+	- Hybrid (per-hop for Class B, end-to-end for Class C)
+	- Output : (network) Topology recommendation per message class    
+4. Control plane architecture design
+	- refining the author's prior design under the constraints derived in Phases 1–3.
+	- Output :  
+		- **The architecture** : layer decomposition, where security functions sit, key hierarchy, session state per node.
+		- **The protocol specification** : Message sequence diagrams for single-hop and multi-hop, handshake mode, what's authenticated, what's encrypted, rekeying behaviour.
+5. Implementation and evaluation
+	- Cryptographic cost : real hardware
+	- Protocol-level effects : simulated
+## Internship period
+This project is a ==continuation of my Internship Work.== During my internship period, I produced a prototype work which consists of control plane architecture, two handshake protocol designs and a preliminary overhead study. 
+[Click here to see my internship work](/internship/README.md)
 
 ## Software Used : QuNetSim
 Why QuNetSim?
